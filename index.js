@@ -1,35 +1,37 @@
-const express=require("express")
-const app=express()
+const express = require("express")
+const app = express()
 require("dotenv").config()
-const {connection}=require("./config/db")
+const { connection } = require("./config/db")
 
-const {userRouter}=require("./routes/userRoutes")
-const cors=require("cors")
-const { theaterRouter } = require("./routes/theaterRoutes")
-const { movieRouter } = require("./routes/movieRoutes")
-const { tickeRouter } = require("./routes/ticketRoutes")
-const { cartRouter } = require("./routes/cartRoutes")
-const { authenticate } = require("./middleware/authentication")
+const { userRouter } = require("./routes/userRoutes")
+const { itemRouter } = require("./routes/itemRoutes")
+const cors = require("cors")
+
 app.use(express.json())
-app.use(cors())
+app.use(cors({
+    origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "userid", "user-id"]
+}))
 
-
-app.get("/",(req,res)=>{
-    res.send("WELCOME TO THE TICKET RESERVATION SYSTEM")
+app.get("/", (req, res) => {
+    res.send("WELCOME TO SOKOGO CLASSIFIEDS BACKEND API")
 })
 
-app.use("/user",userRouter)
-app.use("/theaters",theaterRouter)
-app.use("/movie",authenticate,movieRouter)
-app.use("/bookings",authenticate,tickeRouter)
-app.use("/cart",authenticate,cartRouter)
-app.listen(process.env.port,async()=>{
+// User authentication routes
+app.use("/api/auth", userRouter)
+
+// Item/classifieds routes
+app.use("/api/items", itemRouter)
+
+app.listen(process.env.PORT || process.env.port, async () => {
     try {
         await connection;
-        console.log("Connected to DB")
+        console.log("Connected to MongoDB")
     } catch (error) {
         console.log(error)
         console.log("Something went wrong")
     }
-    console.log(`Server is running on port no ${process.env.port}`)
+    console.log(`SOKOGO Backend Server is running on port ${process.env.PORT || process.env.port}`)
 })

@@ -6,6 +6,11 @@ const userSchema = mongoose.Schema({
     email: { type: String, required: true, unique: true },
     phoneNumber: { type: String, required: true },
     password: { type: String, required: true },
+    role: {
+        type: String,
+        enum: ['buyer', 'seller', 'admin'],
+        default: 'buyer'
+    },
     createdAt: { type: Date, default: Date.now }
 }, {
     versionKey: false,

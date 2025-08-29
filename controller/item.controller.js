@@ -17,42 +17,43 @@ const createItem = async (req, res) => {
             contactInfo
         } = req.body;
 
-        const sellerId = req.userId;
+        const sellerId = req.userId; // May be undefined when unauthenticated
 
         // Validate required fields
-        if (!title || !description || !category || !subcategory || !price || !location) {
+        if (!title || !description || !price) {
             return res.status(400).json({
-                message: "Title, description, category, subcategory, price, and location are required"
+                message: "Title, description, and price are required"
             });
         }
 
-        // Validate category
-        const validCategories = ['MOTORS', 'PROPERTY', 'ELECTRONICS'];
-        if (!validCategories.includes(category)) {
-            return res.status(400).json({ message: "Invalid category" });
+        // Enforce MVP scope: only MOTORS > CARS. If not provided, default them.
+        const normalizedCategory = category || 'MOTORS';
+        const normalizedSubcategory = subcategory || 'CARS';
+        if (normalizedCategory !== 'MOTORS' || normalizedSubcategory !== 'CARS') {
+            return res.status(400).json({ message: "Only MOTORS > CARS is supported in MVP" });
         }
 
-        // Check if user exists
-        const user = await UserModel.findById(sellerId);
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
+        // If authenticated, load user to prefill contact info; otherwise skip
+        let user = null;
+        if (sellerId) {
+            user = await UserModel.findById(sellerId);
         }
 
         // Create item
         const item = new ItemModel({
             title,
             description,
-            category,
-            subcategory,
+            category: normalizedCategory,
+            subcategory: normalizedSubcategory,
             price,
             currency: currency || 'Frw',
-            location,
+            location: location || {},
             images: images || [],
-            seller: sellerId,
+            seller: sellerId || undefined,
             features: features || {},
             contactInfo: {
-                phone: contactInfo?.phone || user.phoneNumber,
-                email: contactInfo?.email || user.email
+                phone: contactInfo?.phone || user?.phoneNumber,
+                email: contactInfo?.email || user?.email
             }
         });
 
@@ -76,7 +77,7 @@ const createItem = async (req, res) => {
 const createManyItems = async (req, res) => {
     try {
         const { items } = req.body;
-        const sellerId = req.userId;
+        const sellerId = req.userId; // May be undefined when unauthenticated
 
         if (!Array.isArray(items) || items.length === 0) {
             return res.status(400).json({
@@ -84,13 +85,13 @@ const createManyItems = async (req, res) => {
             });
         }
 
-        // Check if user exists
-        const user = await UserModel.findById(sellerId);
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
+        // Load user if available to prefill contact info
+        let user = null;
+        if (sellerId) {
+            user = await UserModel.findById(sellerId);
         }
 
-        const validCategories = ['MOTORS', 'PROPERTY', 'ELECTRONICS'];
+        const validCategories = ['MOTORS'];
         const createdItems = [];
         const errors = [];
 
@@ -99,21 +100,19 @@ const createManyItems = async (req, res) => {
 
             try {
                 // Validate required fields
-                if (!itemData.title || !itemData.description || !itemData.category ||
-                    !itemData.subcategory || !itemData.price || !itemData.location) {
+                if (!itemData.title || !itemData.description || !itemData.price) {
                     errors.push({
                         index: i,
-                        error: "Title, description, category, subcategory, price, and location are required"
+                        error: "Title, description, and price are required"
                     });
                     continue;
                 }
 
-                // Validate category
-                if (!validCategories.includes(itemData.category)) {
-                    errors.push({
-                        index: i,
-                        error: "Invalid category"
-                    });
+                // Enforce MVP scope and defaults
+                const normalizedCategoryMany = itemData.category || 'MOTORS';
+                const normalizedSubcategoryMany = itemData.subcategory || 'CARS';
+                if (normalizedCategoryMany !== 'MOTORS' || normalizedSubcategoryMany !== 'CARS') {
+                    errors.push({ index: i, error: "Only MOTORS > CARS is supported in MVP" });
                     continue;
                 }
 
@@ -121,17 +120,17 @@ const createManyItems = async (req, res) => {
                 const item = new ItemModel({
                     title: itemData.title,
                     description: itemData.description,
-                    category: itemData.category,
-                    subcategory: itemData.subcategory,
+                    category: normalizedCategoryMany,
+                    subcategory: normalizedSubcategoryMany,
                     price: itemData.price,
                     currency: itemData.currency || 'Frw',
-                    location: itemData.location,
+                    location: itemData.location || {},
                     images: itemData.images || [],
-                    seller: sellerId,
+                    seller: sellerId || undefined,
                     features: itemData.features || {},
                     contactInfo: {
-                        phone: itemData.contactInfo?.phone || user.phoneNumber,
-                        email: itemData.contactInfo?.email || user.email
+                        phone: itemData.contactInfo?.phone || user?.phoneNumber,
+                        email: itemData.contactInfo?.email || user?.email
                     }
                 });
 
@@ -280,21 +279,22 @@ const getItemsBySeller = async (req, res) => {
 const updateItem = async (req, res) => {
     try {
         const { itemId } = req.params;
-        const sellerId = req.userId;
+        const sellerId = req.userId; // optional in MVP
         const updateData = req.body;
 
         // Remove fields that shouldn't be updated
         delete updateData.seller;
         delete updateData.createdAt;
 
+        // Allow updates regardless of authentication for MVP
         const item = await ItemModel.findOneAndUpdate(
-            { _id: itemId, seller: sellerId },
+            { _id: itemId },
             { ...updateData, updatedAt: new Date() },
             { new: true }
         ).populate('seller', 'firstName lastName email');
 
         if (!item) {
-            return res.status(404).json({ message: "Item not found or unauthorized" });
+            return res.status(404).json({ message: "Item not found" });
         }
 
         res.status(200).json({
@@ -312,12 +312,12 @@ const updateItem = async (req, res) => {
 const deleteItem = async (req, res) => {
     try {
         const { itemId } = req.params;
-        const sellerId = req.userId;
 
-        const item = await ItemModel.findOneAndDelete({ _id: itemId, seller: sellerId });
+        // Allow deletion without authentication for MVP
+        const item = await ItemModel.findOneAndDelete({ _id: itemId });
 
         if (!item) {
-            return res.status(404).json({ message: "Item not found or unauthorized" });
+            return res.status(404).json({ message: "Item not found" });
         }
 
         res.status(200).json({

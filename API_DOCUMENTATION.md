@@ -120,19 +120,22 @@ user-id: <your_user_id>
 
 ---
 
-## 2. Items/Classifieds Routes
+## 2. Items/Classifieds Routes (MVP: Cars only)
 
 ### Base Path: `/items`
 
 #### 2.1 Get All Items
 - **URL:** `GET /items`
-- **Description:** Retrieve all available items/classifieds
+- **Description:** Retrieve car listings. MVP currently supports only `MOTORS > CARS`.
 - **Authentication:** Not required
-- **Query Parameters:** (if supported)
-  - `page` - Page number for pagination
-  - `limit` - Number of items per page
-  - `category` - Filter by category
-  - `search` - Search term
+- **Query Parameters:**
+  - `page` - Page number for pagination (default: 1)
+  - `limit` - Number of items per page (default: 10)
+  - `category` - Defaults to `MOTORS`
+  - `subcategory` - Defaults to `CARS`
+  - `minPrice` / `maxPrice` - Price range
+  - `location` - City text filter
+  - `search` - Search title and description
 - **Response (200):**
   ```json
   {
@@ -159,10 +162,10 @@ user-id: <your_user_id>
 
 #### 2.2 Get Popular Items by Category
 - **URL:** `GET /items/popular/:category`
-- **Description:** Get popular items in a specific category
+- **Description:** Get popular car items in a specific category. Use `MOTORS`.
 - **Authentication:** Not required
 - **Path Parameters:**
-  - `category` - Category name
+  - `category` - Category name (MVP supports `MOTORS` only)
 - **Response (200):**
   ```json
   {
@@ -207,44 +210,75 @@ user-id: <your_user_id>
     "images": ["string"],
     "location": "string",
     "condition": "string",
-    "createdAt": "date",
+    "createdAt":
+     "date",
     "updatedAt": "date"
   }
   ```
 - **Error Responses:**
   - `404` - Item not found
 
-#### 2.4 Create New Item
+#### 2.4 Create New Item (Cars)
 - **URL:** `POST /items`
-- **Description:** Create a new item listing
-- **Authentication:** Required
+- **Description:** Create a new car listing. Only `MOTORS > CARS` is supported in the MVP.
+- **Authentication:** Not required (MVP)
 - **Request Body:**
   ```json
   {
-    "title": "string",
-    "description": "string",
-    "price": "number",
-    "category": "string",
-    "images": ["string"],
-    "location": "string",
-    "condition": "string"
+    "title": "Low mileage RAV4",
+    "description": "Well maintained, single owner",
+    "price": 10000000,
+    "currency": "Frw",
+    "category": "MOTORS",
+    "subcategory": "CARS",
+    "images": ["https://..."],
+    "location": { "district": "Nyarugenge", "city": "Kigali", "address": "CBD" },
+    "features": {
+      "make": "Toyota",
+      "model": "RAV4",
+      "year": 2018,
+      "kilometers": 45000,
+      "bodyType": "SUV",
+      "isInsuredInRwanda": "yes",
+      "technicalControl": "yes",
+      "exteriorColor": "White",
+      "interiorColor": "Black",
+      "warranty": "none",
+      "doors": 5,
+      "transmissionType": "Automatic",
+      "steeringSide": "Left",
+      "fuelType": "Petrol",
+      "seatingCapacity": 5,
+      "horsePower": 170,
+      "frontAirbags": true,
+      "sideAirbags": true,
+      "powerSteering": true,
+      "cruiseControl": false,
+      "frontWheelDrive": true,
+      "antiLockBrakesABS": true
+    }
   }
   ```
+  Required fields: `title`, `description`, `price`. `location` is optional. All `features` are optional.
 - **Response (201):**
   ```json
   {
     "message": "Item created successfully",
     "item": {
       "_id": "string",
-      "title": "string",
-      "description": "string",
-      "price": "number",
-      "category": "string",
-      "seller": "user_id",
-      "images": ["string"],
-      "location": "string",
-      "condition": "string",
-      "createdAt": "date"
+      "title": "Low mileage RAV4",
+      "description": "Well maintained, single owner",
+      "price": 10000000,
+      "currency": "Frw",
+      "category": "MOTORS",
+      "subcategory": "CARS",
+      "seller": { "_id": "...", "firstName": "...", "lastName": "...", "phoneNumber": "..." },
+      "images": ["https://..."],
+      "location": { "district": "Nyarugenge", "city": "Kigali", "address": "CBD" },
+      "features": { "make": "Toyota", "model": "RAV4", "year": 2018 },
+      "status": "ACTIVE",
+      "createdAt": "date",
+      "updatedAt": "date"
     }
   }
   ```
@@ -265,11 +299,13 @@ user-id: <your_user_id>
         "_id": "string",
         "title": "string",
         "description": "string",
-        "price": "number",
-        "category": "string",
-        "images": ["string"],
-        "location": "string",
-        "condition": "string",
+        "price": 1000000,
+        "currency": "Frw",
+        "category": "MOTORS",
+        "subcategory": "CARS",
+        "images": ["https://..."],
+        "location": { "district": "string", "city": "string", "address": "string" },
+        "features": { "make": "Toyota" },
         "createdAt": "date",
         "updatedAt": "date"
       }
@@ -279,8 +315,8 @@ user-id: <your_user_id>
 
 #### 2.6 Update Item
 - **URL:** `PUT /items/:itemId`
-- **Description:** Update an existing item
-- **Authentication:** Required (only item owner)
+- **Description:** Update an existing car listing
+- **Authentication:** Not required (MVP)
 - **Path Parameters:**
   - `itemId` - Item ID
 - **Request Body:**
@@ -288,11 +324,11 @@ user-id: <your_user_id>
   {
     "title": "string",
     "description": "string",
-    "price": "number",
-    "category": "string",
-    "images": ["string"],
-    "location": "string",
-    "condition": "string"
+    "price": 1000000,
+    "currency": "Frw",
+    "images": ["https://..."],
+    "location": { "district": "string", "city": "string", "address": "string" },
+    "features": { "kilometers": 50000, "transmissionType": "Automatic" }
   }
   ```
 - **Response (200):**
@@ -303,12 +339,14 @@ user-id: <your_user_id>
       "_id": "string",
       "title": "string",
       "description": "string",
-      "price": "number",
-      "category": "string",
+      "price": 1000000,
+      "currency": "Frw",
+      "category": "MOTORS",
+      "subcategory": "CARS",
       "seller": "user_id",
-      "images": ["string"],
-      "location": "string",
-      "condition": "string",
+      "images": ["https://..."],
+      "location": { "district": "string", "city": "string", "address": "string" },
+      "features": { "kilometers": 50000 }
       "updatedAt": "date"
     }
   }
@@ -322,7 +360,7 @@ user-id: <your_user_id>
 #### 2.7 Delete Item
 - **URL:** `DELETE /items/:itemId`
 - **Description:** Delete an item
-- **Authentication:** Required (only item owner)
+- **Authentication:** Not required (MVP)
 - **Path Parameters:**
   - `itemId` - Item ID
 - **Response (200):**

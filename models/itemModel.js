@@ -11,12 +11,15 @@ const itemSchema = mongoose.Schema({
     },
     category: {
         type: String,
-        enum: ['MOTORS', 'PROPERTY', 'ELECTRONICS'],
-        required: true
+        enum: ['MOTORS'],
+        required: true,
+        default: 'MOTORS'
     },
     subcategory: {
         type: String,
-        required: true
+        enum: ['CARS'],
+        required: true,
+        default: 'CARS'
     },
     price: {
         type: Number,
@@ -27,8 +30,8 @@ const itemSchema = mongoose.Schema({
         default: 'Frw'
     },
     location: {
-        district: { type: String, required: true },
-        city: { type: String, required: true },
+        district: { type: String },
+        city: { type: String },
         address: { type: String }
     },
     images: [{
@@ -36,8 +39,7 @@ const itemSchema = mongoose.Schema({
     }],
     seller: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'users',
-        required: true
+        ref: 'users'
     },
     status: {
         type: String,
@@ -45,23 +47,37 @@ const itemSchema = mongoose.Schema({
         default: 'ACTIVE'
     },
     features: {
-        // For motors
-        brand: String,
+        // Cars-specific optional fields (MVP)
+        make: String,
         model: String,
         year: Number,
-        mileage: Number,
+        kilometers: Number,
+        bodyType: String,
+        isInsuredInRwanda: String, // yes/no/unknown
+        technicalControl: String, // yes/no/unknown
+        exteriorColor: String,
+        interiorColor: String,
+        warranty: String, // e.g., none/limited/full
+        doors: Number,
+        transmissionType: String,
+        steeringSide: String,
         fuelType: String,
-        transmission: String,
-        
-        // For property
-        bedrooms: Number,
-        bathrooms: Number,
-        area: Number,
-        areaUnit: String,
-        
-        // For electronics
-        condition: String,
-        warranty: Boolean
+        seatingCapacity: Number,
+        horsePower: Number,
+
+        // Technical features (checkbox-like booleans)
+        tiptronicGears: Boolean,
+        n2oSystem: Boolean,
+        frontAirbags: Boolean,
+        sideAirbags: Boolean,
+        powerSteering: Boolean,
+        cruiseControl: Boolean,
+        frontWheelDrive: Boolean,
+        rearWheelDrive: Boolean,
+        fourWheelDrive: Boolean,
+        allWheelSteering: Boolean,
+        allWheelDrive: Boolean,
+        antiLockBrakesABS: Boolean
     },
     contactInfo: {
         phone: String,
@@ -82,4 +98,4 @@ const itemSchema = mongoose.Schema({
 
 const ItemModel = mongoose.model("items", itemSchema)
 
-module.exports = { ItemModel } 
+module.exports = { ItemModel }

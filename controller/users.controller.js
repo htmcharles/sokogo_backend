@@ -2,8 +2,9 @@ const bcrypt = require("bcrypt");
 const { UserModel } = require("../models/usersModel")
 require("dotenv").config();
 
+// Register or update user
 const register = async (req, res) => {
-    const { firstName, lastName, email, phoneNumber, password, role } = req.body
+    const { firstName, lastName, email, phoneNumber, password, role } = req.body;
     try {
         // Input validation
         if (!firstName || !lastName || !email || !phoneNumber || !password) {
@@ -19,46 +20,60 @@ const register = async (req, res) => {
             });
         }
 
-        // Check if user already exists
-        const existingUser = await UserModel.findOne({ email })
+        // Hash password
+        const secure_password = await bcrypt.hash(password, 5);
 
-        if (existingUser) {
-            return res.status(400).json({ "message": "User already exists" })
+        // Check if user exists
+        let user = await UserModel.findOne({ email });
+
+        if (user) {
+            // Update existing user
+            user.firstName = firstName;
+            user.lastName = lastName;
+            user.phoneNumber = phoneNumber;
+            user.password = secure_password;
+            user.role = role || user.role;
+            await user.save();
+            return res.status(200).json({
+                message: "Existing user updated successfully",
+                user: {
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    email: user.email,
+                    phoneNumber: user.phoneNumber,
+                    role: user.role
+                }
+            });
+        } else {
+            // Create new user
+            user = new UserModel({
+                firstName,
+                lastName,
+                email,
+                phoneNumber,
+                password: secure_password,
+                role: role || 'buyer' // Default to 'buyer'
+            });
+            await user.save();
+            return res.status(201).json({
+                message: "Account created successfully",
+                user: {
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    email: user.email,
+                    phoneNumber: user.phoneNumber,
+                    role: user.role
+                }
+            });
         }
 
-        // Hash password
-        bcrypt.hash(password, 5, async (err, secure_password) => {
-            if (err) {
-                console.log(err)
-                return res.status(500).json({ "message": "Error hashing password" })
-            } else {
-                const user = new UserModel({
-                    firstName,
-                    lastName,
-                    email,
-                    phoneNumber,
-                    password: secure_password,
-                    role: role || 'buyer' // Default to 'buyer' if not specified
-                });
-                await user.save();
-                res.status(201).json({
-                    "message": "Account created successfully",
-                    "user": {
-                        firstName: user.firstName,
-                        lastName: user.lastName,
-                        email: user.email,
-                        phoneNumber: user.phoneNumber,
-                        role: user.role
-                    }
-                })
-            }
-        });
     } catch (err) {
         console.log(err);
-        res.status(500).json({ "message": "Error while creating account" })
+        res.status(500).json({ "message": "Error while creating/updating account" })
     }
 };
 
+// Login
 const login = async (req, res) => {
     const { email, password } = req.body;
     try {
@@ -67,12 +82,12 @@ const login = async (req, res) => {
             return res.status(400).json({ message: "Email and password are required." });
         }
 
-        const user = await UserModel.findOne({ email })
+        const user = await UserModel.findOne({ email });
         if (user) {
-            bcrypt.compare(password, user.password, (err, result) => {
-                if (result) {
-                                    res.status(200).json({
-                    "user": {
+            const isMatch = await bcrypt.compare(password, user.password);
+            if (isMatch) {
+                return res.status(200).json({
+                    user: {
                         _id: user._id,
                         firstName: user.firstName,
                         lastName: user.lastName,
@@ -80,18 +95,17 @@ const login = async (req, res) => {
                         phoneNumber: user.phoneNumber,
                         role: user.role
                     },
-                    "message": "Login successful"
-                })
-                } else {
-                    res.status(401).json({ "message": "Invalid email or password" })
-                }
-            });
+                    message: "Login successful"
+                });
+            } else {
+                return res.status(401).json({ message: "Invalid email or password" });
+            }
         } else {
-            res.status(401).json({ "message": "Invalid email or password" })
+            return res.status(401).json({ message: "Invalid email or password" });
         }
     } catch (err) {
         console.log(err);
-        res.status(500).json({ "message": "Error while logging in" })
+        res.status(500).json({ message: "Error while logging in" });
     }
 };
 
@@ -139,7 +153,7 @@ const getAllUsers = async (req, res) => {
 
     } catch (err) {
         console.log(err);
-        res.status(500).json({ "message": "Error while retrieving users" });
+        res.status(500).json({ message: "Error while retrieving users" });
     }
 };
 

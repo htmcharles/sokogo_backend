@@ -155,10 +155,37 @@ const getAllUsers = async (req, res) => {
         console.log(err);
         res.status(500).json({ message: "Error while retrieving users" });
     }
+
+};
+const getUserById = async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        if (!userId) {
+            return res.status(400).json({ message: "User ID is required" });
+        }
+
+        const user = await UserModel.findById(userId)
+            .select('-password'); // Exclude password from response
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        res.status(200).json({
+            message: "User retrieved successfully",
+            user
+        });
+
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Error while retrieving user" });
+    }
 };
 
 module.exports = {
     login,
     register,
     getAllUsers,
+    getUserById,
 };

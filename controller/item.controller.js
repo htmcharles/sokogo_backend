@@ -26,6 +26,13 @@ const createItem = async (req, res) => {
             });
         }
 
+        // Ensure seller ID is available
+        if (!sellerId) {
+            return res.status(400).json({
+                message: "Seller ID is required"
+            });
+        }
+
         // Enforce MVP scope: only MOTORS > CARS. If not provided, default them.
         const normalizedCategory = category || 'MOTORS';
         const normalizedSubcategory = subcategory || 'CARS';
@@ -54,7 +61,9 @@ const createItem = async (req, res) => {
             }
         });
 
+        console.log('Creating item with seller ID:', sellerId);
         await item.save();
+        console.log('Item created with ID:', item._id, 'and seller:', item.seller);
 
         // Populate seller details
         await item.populate('seller', 'firstName lastName email phoneNumber');
@@ -79,6 +88,13 @@ const createManyItems = async (req, res) => {
         if (!Array.isArray(items) || items.length === 0) {
             return res.status(400).json({
                 message: "Items array is required and must not be empty"
+            });
+        }
+
+        // Ensure seller ID is available
+        if (!sellerId) {
+            return res.status(400).json({
+                message: "Seller ID is required"
             });
         }
 
@@ -202,7 +218,7 @@ const getItems = async (req, res) => {
         const skip = (page - 1) * limit;
 
         const items = await ItemModel.find(filter)
-            .populate('seller', 'firstName lastName')
+            .populate('seller', 'firstName lastName email phoneNumber role createdAt')
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(Number(limit));
@@ -231,11 +247,46 @@ const getItemById = async (req, res) => {
     try {
         const { itemId } = req.params;
 
-        const item = await ItemModel.findById(itemId)
-            .populate('seller', 'firstName lastName email phoneNumber');
-
-        if (!item) {
+        // First, get the item without population to check if seller field exists
+        const itemWithoutPopulate = await ItemModel.findById(itemId);
+        
+        if (!itemWithoutPopulate) {
             return res.status(404).json({ message: "Item not found" });
+        }
+
+        console.log('Item without populate:', {
+            _id: itemWithoutPopulate._id,
+            seller: itemWithoutPopulate.seller,
+            hasSeller: !!itemWithoutPopulate.seller
+        });
+
+        // If the item has a seller reference, try to populate it
+        let item;
+        if (itemWithoutPopulate.seller) {
+            item = await ItemModel.findById(itemId)
+                .populate({
+                    path: 'seller',
+                    select: 'firstName lastName email phoneNumber role createdAt',
+                    model: 'users'
+                });
+        } else {
+            item = itemWithoutPopulate;
+        }
+
+        // If item has no seller information or seller is null/undefined, add a placeholder
+        if (!item.seller || item.seller === null || (typeof item.seller === 'object' && Object.keys(item.seller).length === 0)) {
+            console.log(`Item ${itemId} has no seller information, adding placeholder`);
+            item.seller = {
+                _id: null,
+                firstName: "Unknown",
+                lastName: "Seller",
+                email: "No email provided",
+                phoneNumber: "No phone provided",
+                role: "unknown",
+                createdAt: null
+            };
+        } else {
+            console.log(`Item ${itemId} has seller information:`, item.seller);
         }
 
         res.status(200).json({
@@ -255,7 +306,7 @@ const getItemsBySeller = async (req, res) => {
         const sellerId = req.userId;
 
         const items = await ItemModel.find({ seller: sellerId })
-            .populate('seller', 'firstName lastName')
+            .populate('seller', 'firstName lastName email phoneNumber role createdAt')
             .sort({ createdAt: -1 });
 
         res.status(200).json({
@@ -295,7 +346,7 @@ const updateItem = async (req, res) => {
             { _id: itemId },
             { ...updateData, updatedAt: new Date() },
             { new: true }
-        ).populate('seller', 'firstName lastName email');
+        ).populate('seller', 'firstName lastName email phoneNumber role createdAt');
 
         res.status(200).json({
             message: "Item updated successfully",
@@ -352,7 +403,7 @@ const getPopularItems = async (req, res) => {
         if (category) filter.category = category;
 
         const items = await ItemModel.find(filter)
-            .populate('seller', 'firstName lastName')
+            .populate('seller', 'firstName lastName email phoneNumber role createdAt')
             .sort({ createdAt: -1 })
             .limit(limit);
 

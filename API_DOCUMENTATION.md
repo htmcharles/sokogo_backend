@@ -118,6 +118,32 @@ user-id: <your_user_id>
 - **Error Responses:**
   - `500` - Server error
 
+#### 1.4 Get User by ID
+- **URL:** `GET /auth/users/:userId`
+- **Description:** Retrieve a specific user by their ID
+- **Authentication:** Not required
+- **Path Parameters:**
+  - `userId` - User ID
+- **Response (200):**
+  ```json
+  {
+    "message": "User retrieved successfully",
+    "user": {
+      "_id": "string",
+      "firstName": "string",
+      "lastName": "string",
+      "email": "string",
+      "phoneNumber": "string",
+      "role": "string",
+      "createdAt": "date"
+    }
+  }
+  ```
+- **Error Responses:**
+  - `400` - Missing user ID
+  - `404` - User not found
+  - `500` - Server error
+
 ---
 
 ## 2. Items/Classifieds Routes (MVP: Cars only)
@@ -146,7 +172,15 @@ user-id: <your_user_id>
         "description": "string",
         "price": "number",
         "category": "string",
-        "seller": "user_id",
+        "seller": {
+          "_id": "string",
+          "firstName": "string",
+          "lastName": "string",
+          "email": "string",
+          "phoneNumber": "string",
+          "role": "string",
+          "createdAt": "date"
+        },
         "images": ["string"],
         "location": "string",
         "condition": "string",
@@ -176,7 +210,15 @@ user-id: <your_user_id>
         "description": "string",
         "price": "number",
         "category": "string",
-        "seller": "user_id",
+        "seller": {
+          "_id": "string",
+          "firstName": "string",
+          "lastName": "string",
+          "email": "string",
+          "phoneNumber": "string",
+          "role": "string",
+          "createdAt": "date"
+        },
         "images": ["string"],
         "location": "string",
         "condition": "string",
@@ -205,7 +247,9 @@ user-id: <your_user_id>
       "firstName": "string",
       "lastName": "string",
       "email": "string",
-      "phoneNumber": "string"
+      "phoneNumber": "string",
+      "role": "string",
+      "createdAt": "date"
     },
     "images": ["string"],
     "location": "string",

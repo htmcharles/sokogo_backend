@@ -18,14 +18,12 @@ itemRouter.get("/", getItems);
 itemRouter.get("/popular/:category", getPopularItems);
 itemRouter.get("/:itemId", getItemById);
 
-// Public create/update/delete for MVP (no authentication)
+// Authenticated routes (authentication required)
+itemRouter.use(authenticate);
 itemRouter.post("/", createItem);
 itemRouter.post("/bulk", createManyItems);
 itemRouter.put("/:itemId", updateItem);
 itemRouter.delete("/:itemId", deleteItem);
-
-// Authenticated route to fetch a seller's items remains protected
-itemRouter.use(authenticate);
 itemRouter.get("/seller/my-items", getItemsBySeller);
 
 module.exports = { itemRouter };

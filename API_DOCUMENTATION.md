@@ -221,7 +221,7 @@ user-id: <your_user_id>
 #### 2.4 Create New Item (Cars)
 - **URL:** `POST /items`
 - **Description:** Create a new car listing. Only `MOTORS > CARS` is supported in the MVP.
-- **Authentication:** Not required (MVP)
+- **Authentication:** Required (Include user ID in headers)
 - **Request Body:**
   ```json
   {
@@ -259,7 +259,7 @@ user-id: <your_user_id>
     }
   }
   ```
-  Required fields: `title`, `description`, `price`. `location` is optional. All `features` are optional.
+  Required fields: `title`, `description`, `price`. `location` is optional. All `features` are optional. The `seller` field is automatically set to the authenticated user's ID.
 - **Response (201):**
   ```json
   {
@@ -284,7 +284,88 @@ user-id: <your_user_id>
   ```
 - **Error Responses:**
   - `400` - Missing required fields
-  - `401` - Unauthorized
+  - `401` - Unauthorized (missing or invalid user ID)
+  - `500` - Server error
+
+#### 2.4.1 Create Multiple Items (Bulk)
+- **URL:** `POST /items/bulk`
+- **Description:** Create multiple car listings at once. Only `MOTORS > CARS` is supported in the MVP.
+- **Authentication:** Required (Include user ID in headers)
+- **Request Body:**
+  ```json
+  {
+    "items": [
+      {
+        "title": "Low mileage RAV4",
+        "description": "Well maintained, single owner",
+        "price": 10000000,
+        "currency": "Frw",
+        "category": "MOTORS",
+        "subcategory": "CARS",
+        "images": ["https://..."],
+        "location": { "district": "Nyarugenge", "city": "Kigali", "address": "CBD" },
+        "features": {
+          "make": "Toyota",
+          "model": "RAV4",
+          "year": 2018
+        }
+      },
+      {
+        "title": "Honda Civic 2020",
+        "description": "Excellent condition",
+        "price": 15000000,
+        "currency": "Frw",
+        "category": "MOTORS",
+        "subcategory": "CARS",
+        "images": ["https://..."],
+        "features": {
+          "make": "Honda",
+          "model": "Civic",
+          "year": 2020
+        }
+      }
+    ]
+  }
+  ```
+  Each item requires: `title`, `description`, `price`. Other fields are optional. The `seller` field is automatically set to the authenticated user's ID for all items.
+- **Response (201):**
+  ```json
+  {
+    "message": "Successfully created 2 items",
+    "createdItems": [
+      {
+        "_id": "string",
+        "title": "Low mileage RAV4",
+        "description": "Well maintained, single owner",
+        "price": 10000000,
+        "currency": "Frw",
+        "category": "MOTORS",
+        "subcategory": "CARS",
+        "seller": { "_id": "...", "firstName": "...", "lastName": "...", "phoneNumber": "..." },
+        "images": ["https://..."],
+        "location": { "district": "Nyarugenge", "city": "Kigali", "address": "CBD" },
+        "features": { "make": "Toyota", "model": "RAV4", "year": 2018 },
+        "status": "ACTIVE",
+        "createdAt": "date",
+        "updatedAt": "date"
+      }
+    ],
+    "errors": [
+      {
+        "index": 1,
+        "error": "Title, description, and price are required"
+      }
+    ],
+    "summary": {
+      "total": 2,
+      "created": 1,
+      "failed": 1
+    }
+  }
+  ```
+- **Error Responses:**
+  - `400` - Missing items array or empty array
+  - `401` - Unauthorized (missing or invalid user ID)
   - `500` - Server error
 
 #### 2.5 Get My Items (Seller)
@@ -316,7 +397,7 @@ user-id: <your_user_id>
 #### 2.6 Update Item
 - **URL:** `PUT /items/:itemId`
 - **Description:** Update an existing car listing
-- **Authentication:** Not required (MVP)
+- **Authentication:** Required (Include user ID in headers)
 - **Path Parameters:**
   - `itemId` - Item ID
 - **Request Body:**
@@ -353,14 +434,14 @@ user-id: <your_user_id>
   ```
 - **Error Responses:**
   - `400` - Invalid data
-  - `401` - Unauthorized
-  - `403` - Not the item owner
+  - `401` - Unauthorized (missing or invalid user ID)
+  - `403` - Forbidden (not the item owner)
   - `404` - Item not found
 
 #### 2.7 Delete Item
 - **URL:** `DELETE /items/:itemId`
 - **Description:** Delete an item
-- **Authentication:** Not required (MVP)
+- **Authentication:** Required (Include user ID in headers)
 - **Path Parameters:**
   - `itemId` - Item ID
 - **Response (200):**
@@ -370,8 +451,8 @@ user-id: <your_user_id>
   }
   ```
 - **Error Responses:**
-  - `401` - Unauthorized
-  - `403` - Not the item owner
+  - `401` - Unauthorized (missing or invalid user ID)
+  - `403` - Forbidden (not the item owner)
   - `404` - Item not found
 
 ---

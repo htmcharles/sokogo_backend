@@ -17,7 +17,7 @@ const createItem = async (req, res) => {
             contactInfo
         } = req.body;
 
-        const sellerId = req.userId; // May be undefined when unauthenticated
+        const sellerId = req.userId; // Always available due to authentication middleware
 
         // Validate required fields
         if (!title || !description || !price) {
@@ -33,11 +33,8 @@ const createItem = async (req, res) => {
             return res.status(400).json({ message: "Only MOTORS > CARS is supported in MVP" });
         }
 
-        // If authenticated, load user to prefill contact info; otherwise skip
-        let user = null;
-        if (sellerId) {
-            user = await UserModel.findById(sellerId);
-        }
+        // Load user to prefill contact info
+        const user = await UserModel.findById(sellerId);
 
         // Create item
         const item = new ItemModel({
@@ -49,7 +46,7 @@ const createItem = async (req, res) => {
             currency: currency || 'Frw',
             location: location || {},
             images: images || [],
-            seller: sellerId || undefined,
+            seller: sellerId, // Always set to authenticated user
             features: features || {},
             contactInfo: {
                 phone: contactInfo?.phone || user?.phoneNumber,
@@ -77,7 +74,7 @@ const createItem = async (req, res) => {
 const createManyItems = async (req, res) => {
     try {
         const { items } = req.body;
-        const sellerId = req.userId; // May be undefined when unauthenticated
+        const sellerId = req.userId; // Always available due to authentication middleware
 
         if (!Array.isArray(items) || items.length === 0) {
             return res.status(400).json({
@@ -85,11 +82,8 @@ const createManyItems = async (req, res) => {
             });
         }
 
-        // Load user if available to prefill contact info
-        let user = null;
-        if (sellerId) {
-            user = await UserModel.findById(sellerId);
-        }
+        // Load user to prefill contact info
+        const user = await UserModel.findById(sellerId);
 
         const validCategories = ['MOTORS'];
         const createdItems = [];
@@ -126,7 +120,7 @@ const createManyItems = async (req, res) => {
                     currency: itemData.currency || 'Frw',
                     location: itemData.location || {},
                     images: itemData.images || [],
-                    seller: sellerId || undefined,
+                    seller: sellerId, // Always set to authenticated user
                     features: itemData.features || {},
                     contactInfo: {
                         phone: itemData.contactInfo?.phone || user?.phoneNumber,
@@ -279,23 +273,29 @@ const getItemsBySeller = async (req, res) => {
 const updateItem = async (req, res) => {
     try {
         const { itemId } = req.params;
-        const sellerId = req.userId; // optional in MVP
+        const sellerId = req.userId; // Always available due to authentication middleware
         const updateData = req.body;
 
         // Remove fields that shouldn't be updated
         delete updateData.seller;
         delete updateData.createdAt;
 
-        // Allow updates regardless of authentication for MVP
+        // Check if item exists and user is the owner
+        const existingItem = await ItemModel.findById(itemId);
+        if (!existingItem) {
+            return res.status(404).json({ message: "Item not found" });
+        }
+
+        if (existingItem.seller.toString() !== sellerId) {
+            return res.status(403).json({ message: "You can only update your own items" });
+        }
+
+        // Update the item
         const item = await ItemModel.findOneAndUpdate(
             { _id: itemId },
             { ...updateData, updatedAt: new Date() },
             { new: true }
         ).populate('seller', 'firstName lastName email');
-
-        if (!item) {
-            return res.status(404).json({ message: "Item not found" });
-        }
 
         res.status(200).json({
             message: "Item updated successfully",
@@ -312,13 +312,20 @@ const updateItem = async (req, res) => {
 const deleteItem = async (req, res) => {
     try {
         const { itemId } = req.params;
+        const sellerId = req.userId; // Always available due to authentication middleware
 
-        // Allow deletion without authentication for MVP
-        const item = await ItemModel.findOneAndDelete({ _id: itemId });
-
-        if (!item) {
+        // Check if item exists and user is the owner
+        const existingItem = await ItemModel.findById(itemId);
+        if (!existingItem) {
             return res.status(404).json({ message: "Item not found" });
         }
+
+        if (existingItem.seller.toString() !== sellerId) {
+            return res.status(403).json({ message: "You can only delete your own items" });
+        }
+
+        // Delete the item
+        await ItemModel.findByIdAndDelete(itemId);
 
         res.status(200).json({
             message: "Item deleted successfully"
@@ -370,3 +377,4 @@ module.exports = {
     deleteItem,
     getPopularItems
 };
+

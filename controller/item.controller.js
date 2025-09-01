@@ -1,5 +1,7 @@
 const { ItemModel } = require("../models/itemModel");
 const { UserModel } = require("../models/usersModel");
+const path = require("path");
+const { supabase, PRODUCT_IMAGES_BUCKET, isSupabaseConfigured, getSupabaseErrorMessage } = require("../config/supabase");
 
 // Create a new item listing
 const createItem = async (req, res) => {
@@ -304,6 +306,7 @@ const getItemById = async (req, res) => {
 const getItemsBySeller = async (req, res) => {
     try {
         const sellerId = req.userId;
+        const validatedUserId = req.validatedUserId || req.userId;
 
         const items = await ItemModel.find({ seller: sellerId })
             .populate('seller', 'firstName lastName email phoneNumber role createdAt')
@@ -311,7 +314,14 @@ const getItemsBySeller = async (req, res) => {
 
         res.status(200).json({
             message: "Items retrieved successfully",
-            items
+            items,
+            validatedUserId: validatedUserId,
+            seller: {
+                _id: req.user._id,
+                firstName: req.user.firstName,
+                lastName: req.user.lastName,
+                role: req.user.role
+            }
         });
 
     } catch (error) {
@@ -428,4 +438,786 @@ module.exports = {
     deleteItem,
     getPopularItems
 };
+
+// Upload a single product image to Supabase and update the item's images array
+const uploadProductPhoto = async (req, res) => {
+    try {
+        const itemId = req.params.itemId || req.params.id;
+
+        // Validate authentication and seller information
+        if (!req.user || !req.userId) {
+            return res.status(401).json({
+                message: "User must be logged in"
+            });
+        }
+
+        // Check if Supabase is configured
+        if (!isSupabaseConfigured()) {
+            return res.status(503).json({
+                message: getSupabaseErrorMessage(),
+                error: "Photo upload service not available"
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ message: "No file uploaded" });
+        }
+
+        const item = await ItemModel.findById(itemId);
+        if (!item) {
+            return res.status(404).json({ message: "Item not found" });
+        }
+
+        // Validate seller ownership - ensure the authenticated user owns this item
+        const sellerId = req.userId;
+        if (!item.seller || item.seller.toString() !== sellerId) {
+            return res.status(403).json({ 
+                message: "Access denied. You can only upload photos for your own items.",
+                error: "Seller ownership validation failed"
+            });
+        }
+
+        const originalName = req.file.originalname || "image";
+        const safeName = originalName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+        const fileExt = path.extname(safeName) || ".jpg";
+        const fileBase = path.basename(safeName, fileExt);
+        const fileName = `${fileBase}-${Date.now()}${fileExt}`;
+        const storagePath = `products/${itemId}/${fileName}`;
+
+        const { data: uploadData, error: uploadError } = await supabase
+            .storage
+            .from(PRODUCT_IMAGES_BUCKET)
+            .upload(storagePath, req.file.buffer, {
+                contentType: req.file.mimetype || "image/jpeg",
+                upsert: false
+            });
+
+        if (uploadError) {
+            console.error("Supabase upload error:", uploadError);
+            return res.status(500).json({ message: "Failed to upload image to storage" });
+        }
+
+        const { data: publicUrlData } = supabase
+            .storage
+            .from(PRODUCT_IMAGES_BUCKET)
+            .getPublicUrl(uploadData.path);
+
+        const imageUrl = publicUrlData.publicUrl;
+
+        const updated = await ItemModel.findByIdAndUpdate(
+            itemId,
+            { $push: { images: imageUrl }, updatedAt: new Date() },
+            { new: true }
+        ).populate('seller', 'firstName lastName email phoneNumber');
+
+        res.status(200).json({
+            message: "Image uploaded successfully",
+            imageUrl,
+            item: updated,
+            validatedUserId: req.validatedUserId || req.userId,
+            seller: {
+                _id: req.user._id,
+                firstName: req.user.firstName,
+                lastName: req.user.lastName,
+                role: req.user.role
+            }
+        });
+
+    } catch (error) {
+        console.error("Error uploading product photo:", error);
+        res.status(500).json({ message: "Error uploading photo" });
+    }
+};
+
+// Upload multiple product images to Supabase and update the item's images array
+const uploadProductImages = async (req, res) => {
+    try {
+        const itemId = req.params.itemId || req.params.id;
+
+        // Validate authentication and seller information
+        if (!req.user || !req.userId) {
+            return res.status(401).json({
+                message: "User must be logged in"
+            });
+        }
+
+        // Check if Supabase is configured
+        if (!supabase) {
+            return res.status(503).json({ 
+                message: "Photo upload service is not configured. Please contact administrator.",
+                error: "Supabase credentials not set"
+            });
+        }
+
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ message: "No files uploaded" });
+        }
+
+        const item = await ItemModel.findById(itemId);
+        if (!item) {
+            return res.status(404).json({ message: "Item not found" });
+        }
+
+        // Validate seller ownership - ensure the authenticated user owns this item
+        const sellerId = req.userId;
+        if (!item.seller || item.seller.toString() !== sellerId) {
+            return res.status(403).json({ 
+                message: "Access denied. You can only upload photos for your own items.",
+                error: "Seller ownership validation failed"
+            });
+        }
+
+        const uploadPromises = [];
+        const imageUrls = [];
+
+        // Process each uploaded file
+        for (let i = 0; i < req.files.length; i++) {
+            const file = req.files[i];
+            const originalName = file.originalname || `image_${i}`;
+            const safeName = originalName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+            const fileExt = path.extname(safeName) || ".jpg";
+            const fileBase = path.basename(safeName, fileExt);
+            const fileName = `${fileBase}-${Date.now()}-${i}${fileExt}`;
+            const storagePath = `products/${itemId}/${fileName}`;
+
+            const uploadPromise = supabase
+                .storage
+                .from(PRODUCT_IMAGES_BUCKET)
+                .upload(storagePath, file.buffer, {
+                    contentType: file.mimetype || "image/jpeg",
+                    upsert: false
+                });
+
+            uploadPromises.push(uploadPromise);
+        }
+
+        // Upload all files concurrently
+        const uploadResults = await Promise.allSettled(uploadPromises);
+        
+        // Process upload results
+        for (let i = 0; i < uploadResults.length; i++) {
+            const result = uploadResults[i];
+            
+            if (result.status === 'fulfilled' && !result.value.error) {
+                const { data: publicUrlData } = supabase
+                    .storage
+                    .from(PRODUCT_IMAGES_BUCKET)
+                    .getPublicUrl(result.value.data.path);
+                
+                imageUrls.push(publicUrlData.publicUrl);
+            } else {
+                console.error(`Upload failed for file ${i}:`, result.reason || result.value?.error);
+            }
+        }
+
+        if (imageUrls.length === 0) {
+            return res.status(500).json({ message: "All image uploads failed" });
+        }
+
+        // Ensure the item has a valid seller before updating
+        if (!item.seller) {
+            // If item has no seller, set it to the authenticated user
+            await ItemModel.findByIdAndUpdate(
+                itemId,
+                { seller: sellerId, updatedAt: new Date() }
+            );
+        }
+
+        // Update the item with all successfully uploaded image URLs
+        const updated = await ItemModel.findByIdAndUpdate(
+            itemId,
+            { 
+                $push: { images: { $each: imageUrls } }, 
+                updatedAt: new Date()
+            },
+            { new: true }
+        ).populate('seller', 'firstName lastName email phoneNumber');
+
+        res.status(200).json({
+            message: `${imageUrls.length} images uploaded successfully`,
+            imageUrls,
+            uploadedCount: imageUrls.length,
+            totalFiles: req.files.length,
+            item: updated,
+            validatedUserId: req.validatedUserId || req.userId,
+            seller: {
+                _id: req.user._id,
+                firstName: req.user.firstName,
+                lastName: req.user.lastName,
+                email: req.user.email,
+                role: req.user.role
+            }
+        });
+
+    } catch (error) {
+        console.error("Error uploading product images:", error);
+        res.status(500).json({ message: "Error uploading images" });
+    }
+};
+
+// Create a new product with images
+const createProductWithImages = async (req, res) => {
+    try {
+        // Validate authentication and seller information
+        if (!req.user || !req.userId) {
+            return res.status(401).json({
+                message: "User must be logged in"
+            });
+        }
+
+        // Check if Supabase is configured
+        if (!supabase) {
+            return res.status(503).json({ 
+                message: "Photo upload service is not configured. Please contact administrator.",
+                error: "Supabase credentials not set"
+            });
+        }
+
+        const {
+            title,
+            description,
+            category = 'MOTORS',
+            subcategory = 'CARS',
+            price,
+            currency = 'Frw',
+            location,
+            features,
+            contactInfo
+        } = req.body;
+
+        // Validate required fields
+        if (!title || !description || !price) {
+            return res.status(400).json({
+                message: "Title, description, and price are required"
+            });
+        }
+
+        // Validate seller ID from authentication
+        const sellerId = req.userId;
+
+        // Create the product first
+        const product = new ItemModel({
+            title,
+            description,
+            category,
+            subcategory,
+            price,
+            currency,
+            location: location || {},
+            images: [],
+            seller: sellerId,
+            features: features || {},
+            contactInfo: {
+                phone: contactInfo?.phone || req.user.phoneNumber,
+                email: contactInfo?.email || req.user.email
+            }
+        });
+
+        await product.save();
+
+        // If images were uploaded, process them
+        if (req.files && req.files.length > 0) {
+            const uploadPromises = [];
+            const imageUrls = [];
+
+            // Process each uploaded file
+            for (let i = 0; i < req.files.length; i++) {
+                const file = req.files[i];
+                const originalName = file.originalname || `image_${i}`;
+                const safeName = originalName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+                const fileExt = path.extname(safeName) || ".jpg";
+                const fileBase = path.basename(safeName, fileExt);
+                const fileName = `${fileBase}-${Date.now()}-${i}${fileExt}`;
+                const storagePath = `products/${product._id}/${fileName}`;
+
+                const uploadPromise = supabase
+                    .storage
+                    .from(PRODUCT_IMAGES_BUCKET)
+                    .upload(storagePath, file.buffer, {
+                        contentType: file.mimetype || "image/jpeg",
+                        upsert: false
+                    });
+
+                uploadPromises.push(uploadPromise);
+            }
+
+            // Upload all files concurrently
+            const uploadResults = await Promise.allSettled(uploadPromises);
+            
+            // Process upload results
+            for (let i = 0; i < uploadResults.length; i++) {
+                const result = uploadResults[i];
+                
+                if (result.status === 'fulfilled' && !result.value.error) {
+                    const { data: publicUrlData } = supabase
+                        .storage
+                        .from(PRODUCT_IMAGES_BUCKET)
+                        .getPublicUrl(result.value.data.path);
+                    
+                    imageUrls.push(publicUrlData.publicUrl);
+                } else {
+                    console.error(`Upload failed for file ${i}:`, result.reason || result.value?.error);
+                }
+            }
+
+            // Update the product with image URLs
+            if (imageUrls.length > 0) {
+                product.images = imageUrls;
+                await product.save();
+            }
+        }
+
+        // Populate seller details
+        await product.populate('seller', 'firstName lastName email phoneNumber');
+
+        res.status(201).json({
+            message: "Product created successfully with images",
+            product,
+            uploadedImages: product.images.length,
+            seller: {
+                _id: req.user._id,
+                firstName: req.user.firstName,
+                lastName: req.user.lastName,
+                email: req.user.email
+            }
+        });
+
+    } catch (error) {
+        console.error("Error creating product with images:", error);
+        res.status(500).json({ message: "Error creating product" });
+    }
+};
+
+// Upload car photos with specific authentication message
+const uploadCarPhoto = async (req, res) => {
+    try {
+        // Check authentication first with specific error message
+        if (!req.user || !req.userId) {
+            return res.status(401).json({
+                message: "User must be logged in."
+            });
+        }
+
+        // Check if Supabase is configured
+        if (!supabase) {
+            return res.status(503).json({
+                message: "Photo upload service is not configured. Please contact administrator.",
+                error: "Supabase credentials not set"
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ message: "No photo file uploaded" });
+        }
+
+        // Validate file type (images only)
+        const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        if (!allowedMimeTypes.includes(req.file.mimetype)) {
+            return res.status(400).json({
+                message: "Invalid file type. Only JPEG, PNG, and WebP images are allowed."
+            });
+        }
+
+        const sellerId = req.userId;
+        const originalName = req.file.originalname || "car_photo";
+        const safeName = originalName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+        const fileExt = path.extname(safeName) || ".jpg";
+        const fileBase = path.basename(safeName, fileExt);
+        const fileName = `car_${fileBase}-${Date.now()}${fileExt}`;
+        const storagePath = `cars/${sellerId}/${fileName}`;
+
+        // Upload to Supabase storage
+        const { data: uploadData, error: uploadError } = await supabase
+            .storage
+            .from(PRODUCT_IMAGES_BUCKET)
+            .upload(storagePath, req.file.buffer, {
+                contentType: req.file.mimetype,
+                upsert: false
+            });
+
+        if (uploadError) {
+            console.error("Supabase upload error:", uploadError);
+            return res.status(500).json({ message: "Failed to upload photo to storage" });
+        }
+
+        // Get public URL for the uploaded image
+        const { data: publicUrlData } = supabase
+            .storage
+            .from(PRODUCT_IMAGES_BUCKET)
+            .getPublicUrl(uploadData.path);
+
+        const imageUrl = publicUrlData.publicUrl;
+
+        res.status(200).json({
+            message: "Car photo uploaded successfully",
+            filePath: imageUrl,
+            fileName: fileName,
+            uploadPath: storagePath,
+            validatedUserId: req.validatedUserId || req.userId,
+            seller: {
+                _id: req.user._id,
+                firstName: req.user.firstName,
+                lastName: req.user.lastName,
+                role: req.user.role
+            }
+        });
+
+    } catch (error) {
+        console.error("Error uploading car photo:", error);
+        res.status(500).json({ message: "Error uploading car photo" });
+    }
+};
+
+// Create car listing with photo upload (seller role required)
+const createCarListingWithPhoto = async (req, res) => {
+    try {
+        // Authentication and role validation is handled by middleware
+        // At this point, req.user and req.userId are guaranteed to exist and user.role === 'seller'
+
+        const {
+            title,
+            description,
+            price,
+            currency = 'Frw',
+            location,
+            features,
+            contactInfo
+        } = req.body;
+
+        // Validate required fields
+        if (!title || !description || !price) {
+            return res.status(400).json({
+                message: "Title, description, and price are required"
+            });
+        }
+
+        // Check if Supabase is configured for photo uploads
+        if (!supabase) {
+            return res.status(503).json({
+                message: "Photo upload service is not configured. Please contact administrator.",
+                error: "Supabase credentials not set"
+            });
+        }
+
+        const sellerId = req.userId;
+        const seller = req.user;
+
+        // Create the car listing first
+        const carListing = new ItemModel({
+            title,
+            description,
+            category: 'MOTORS',
+            subcategory: 'CARS',
+            price: Number(price),
+            currency,
+            location: location || {},
+            images: [], // Will be populated after photo upload
+            seller: sellerId,
+            features: features || {},
+            contactInfo: {
+                phone: contactInfo?.phone || seller.phoneNumber,
+                email: contactInfo?.email || seller.email
+            },
+            status: 'ACTIVE'
+        });
+
+        await carListing.save();
+        console.log('Car listing created with ID:', carListing._id, 'by seller:', sellerId);
+
+        let uploadedImageUrls = [];
+
+        // Process uploaded photos if any
+        if (req.files && req.files.length > 0) {
+            const uploadPromises = [];
+
+            // Process each uploaded file
+            for (let i = 0; i < req.files.length; i++) {
+                const file = req.files[i];
+
+                // Validate file type
+                const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+                if (!allowedMimeTypes.includes(file.mimetype)) {
+                    continue; // Skip invalid files
+                }
+
+                const originalName = file.originalname || `car_photo_${i}`;
+                const safeName = originalName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+                const fileExt = path.extname(safeName) || ".jpg";
+                const fileBase = path.basename(safeName, fileExt);
+                const fileName = `car_${fileBase}-${Date.now()}-${i}${fileExt}`;
+                const storagePath = `cars/${carListing._id}/${fileName}`;
+
+                const uploadPromise = supabase
+                    .storage
+                    .from(PRODUCT_IMAGES_BUCKET)
+                    .upload(storagePath, file.buffer, {
+                        contentType: file.mimetype,
+                        upsert: false
+                    });
+
+                uploadPromises.push(uploadPromise);
+            }
+
+            // Upload all files concurrently
+            const uploadResults = await Promise.allSettled(uploadPromises);
+
+            // Process upload results and collect successful URLs
+            for (let i = 0; i < uploadResults.length; i++) {
+                const result = uploadResults[i];
+
+                if (result.status === 'fulfilled' && !result.value.error) {
+                    const { data: publicUrlData } = supabase
+                        .storage
+                        .from(PRODUCT_IMAGES_BUCKET)
+                        .getPublicUrl(result.value.data.path);
+
+                    uploadedImageUrls.push(publicUrlData.publicUrl);
+                } else {
+                    console.error(`Upload failed for file ${i}:`, result.reason || result.value?.error);
+                }
+            }
+
+            // Update the car listing with uploaded image URLs
+            if (uploadedImageUrls.length > 0) {
+                carListing.images = uploadedImageUrls;
+                await carListing.save();
+            }
+        }
+
+        // Populate seller details for response
+        await carListing.populate('seller', 'firstName lastName email phoneNumber role');
+
+        res.status(201).json({
+            message: "Car listing created successfully",
+            listing: carListing,
+            uploadedPhotos: uploadedImageUrls.length,
+            photoPaths: uploadedImageUrls,
+            validatedUserId: req.validatedUserId || req.userId,
+            seller: {
+                _id: seller._id,
+                firstName: seller.firstName,
+                lastName: seller.lastName,
+                email: seller.email,
+                role: seller.role
+            }
+        });
+
+    } catch (error) {
+        console.error("Error creating car listing with photo:", error);
+        res.status(500).json({ message: "Error creating car listing" });
+    }
+};
+
+// Upload car photo for existing listing (seller role required)
+const uploadCarPhotoForListing = async (req, res) => {
+    try {
+        // Authentication and seller role validation handled by middleware
+        const { listingId } = req.params;
+
+        if (!req.file) {
+            return res.status(400).json({ message: "No photo file uploaded" });
+        }
+
+        // Check if Supabase is configured
+        if (!supabase) {
+            return res.status(503).json({
+                message: "Photo upload service is not configured. Please contact administrator."
+            });
+        }
+
+        // Find the listing and verify ownership
+        const listing = await ItemModel.findById(listingId);
+        if (!listing) {
+            return res.status(404).json({ message: "Car listing not found" });
+        }
+
+        // Verify the seller owns this listing
+        if (listing.seller.toString() !== req.userId) {
+            return res.status(403).json({
+                message: "You can only upload photos for your own listings"
+            });
+        }
+
+        // Validate file type
+        const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        if (!allowedMimeTypes.includes(req.file.mimetype)) {
+            return res.status(400).json({
+                message: "Invalid file type. Only JPEG, PNG, and WebP images are allowed."
+            });
+        }
+
+        const originalName = req.file.originalname || "car_photo";
+        const safeName = originalName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+        const fileExt = path.extname(safeName) || ".jpg";
+        const fileBase = path.basename(safeName, fileExt);
+        const fileName = `car_${fileBase}-${Date.now()}${fileExt}`;
+        const storagePath = `cars/${listingId}/${fileName}`;
+
+        // Upload to Supabase storage
+        const { data: uploadData, error: uploadError } = await supabase
+            .storage
+            .from(PRODUCT_IMAGES_BUCKET)
+            .upload(storagePath, req.file.buffer, {
+                contentType: req.file.mimetype,
+                upsert: false
+            });
+
+        if (uploadError) {
+            console.error("Supabase upload error:", uploadError);
+            return res.status(500).json({ message: "Failed to upload photo to storage" });
+        }
+
+        // Get public URL for the uploaded image
+        const { data: publicUrlData } = supabase
+            .storage
+            .from(PRODUCT_IMAGES_BUCKET)
+            .getPublicUrl(uploadData.path);
+
+        const imageUrl = publicUrlData.publicUrl;
+
+        // Update the listing with the new image
+        const updatedListing = await ItemModel.findByIdAndUpdate(
+            listingId,
+            {
+                $push: { images: imageUrl },
+                updatedAt: new Date()
+            },
+            { new: true }
+        ).populate('seller', 'firstName lastName email phoneNumber role');
+
+        res.status(200).json({
+            message: "Car photo uploaded successfully",
+            filePath: imageUrl,
+            fileName: fileName,
+            uploadPath: storagePath,
+            listing: updatedListing,
+            validatedUserId: req.validatedUserId || req.userId,
+            seller: {
+                _id: req.user._id,
+                firstName: req.user.firstName,
+                lastName: req.user.lastName,
+                role: req.user.role
+            }
+        });
+
+    } catch (error) {
+        console.error("Error uploading car photo for listing:", error);
+        res.status(500).json({ message: "Error uploading car photo" });
+    }
+};
+
+// Seamless seller image upload (optimized for persistent sessions)
+const uploadSellerProductImage = async (req, res) => {
+    try {
+        const { productId } = req.params;
+
+        // Authentication is already validated by middleware
+        // req.user, req.userId, req.isSeller are guaranteed to exist
+
+        if (!req.file) {
+            return res.status(400).json({ message: "No image file uploaded" });
+        }
+
+        // Check if Supabase is configured
+        if (!supabase) {
+            return res.status(503).json({
+                message: "Photo upload service is not configured. Please contact administrator."
+            });
+        }
+
+        // Find the product and verify ownership
+        const product = await ItemModel.findById(productId);
+        if (!product) {
+            return res.status(404).json({ message: "Product not found" });
+        }
+
+        // Verify the seller owns this product
+        if (product.seller.toString() !== req.userId) {
+            return res.status(403).json({
+                message: "You can only upload images for your own products"
+            });
+        }
+
+        // Validate file type
+        const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        if (!allowedMimeTypes.includes(req.file.mimetype)) {
+            return res.status(400).json({
+                message: "Invalid file type. Only JPEG, PNG, and WebP images are allowed."
+            });
+        }
+
+        const originalName = req.file.originalname || "product_image";
+        const safeName = originalName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+        const fileExt = path.extname(safeName) || ".jpg";
+        const fileBase = path.basename(safeName, fileExt);
+        const fileName = `product_${fileBase}-${Date.now()}${fileExt}`;
+        const storagePath = `products/${productId}/${fileName}`;
+
+        // Upload to Supabase storage
+        const { data: uploadData, error: uploadError } = await supabase
+            .storage
+            .from(PRODUCT_IMAGES_BUCKET)
+            .upload(storagePath, req.file.buffer, {
+                contentType: req.file.mimetype,
+                upsert: false
+            });
+
+        if (uploadError) {
+            console.error("Supabase upload error:", uploadError);
+            return res.status(500).json({ message: "Failed to upload image to storage" });
+        }
+
+        // Get public URL for the uploaded image
+        const { data: publicUrlData } = supabase
+            .storage
+            .from(PRODUCT_IMAGES_BUCKET)
+            .getPublicUrl(uploadData.path);
+
+        const imageUrl = publicUrlData.publicUrl;
+
+        // Update the product with the new image
+        const updatedProduct = await ItemModel.findByIdAndUpdate(
+            productId,
+            {
+                $push: { images: imageUrl },
+                updatedAt: new Date()
+            },
+            { new: true }
+        ).populate('seller', 'firstName lastName email phoneNumber role');
+
+        res.status(200).json({
+            message: "Product image uploaded successfully",
+            imageUrl: imageUrl,
+            filePath: imageUrl,
+            fileName: fileName,
+            uploadPath: storagePath,
+            product: updatedProduct,
+            sessionInfo: {
+                validatedUserId: req.validatedUserId,
+                sessionValid: req.sessionValid,
+                sellerVerified: req.isSeller,
+                userRole: req.user.role
+            },
+            seller: {
+                _id: req.user._id,
+                firstName: req.user.firstName,
+                lastName: req.user.lastName,
+                role: req.user.role,
+                email: req.user.email
+            }
+        });
+
+    } catch (error) {
+        console.error("Error uploading seller product image:", error);
+        res.status(500).json({ message: "Error uploading product image" });
+    }
+};
+
+module.exports.uploadProductPhoto = uploadProductPhoto;
+module.exports.uploadProductImages = uploadProductImages;
+module.exports.createProductWithImages = createProductWithImages;
+module.exports.uploadCarPhoto = uploadCarPhoto;
+module.exports.createCarListingWithPhoto = createCarListingWithPhoto;
+module.exports.uploadCarPhotoForListing = uploadCarPhotoForListing;
+module.exports.uploadSellerProductImage = uploadSellerProductImage;
 

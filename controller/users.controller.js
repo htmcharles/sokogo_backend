@@ -1,6 +1,24 @@
 const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
 const { UserModel } = require("../models/usersModel")
 require("dotenv").config();
+
+// JWT Secret key
+const JWT_SECRET = process.env.key || "sokogo_secret_key_2024";
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d"; // 7 days
+
+// Generate JWT token
+const generateToken = (userId, userRole) => {
+    return jwt.sign(
+        {
+            userId: userId,
+            role: userRole,
+            iat: Math.floor(Date.now() / 1000)
+        },
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRES_IN }
+    );
+};
 
 // Register or update user
 const register = async (req, res) => {
@@ -86,6 +104,9 @@ const login = async (req, res) => {
         if (user) {
             const isMatch = await bcrypt.compare(password, user.password);
             if (isMatch) {
+                // Generate JWT token for persistent login
+                const token = generateToken(user._id, user.role);
+
                 return res.status(200).json({
                     user: {
                         _id: user._id,
@@ -95,7 +116,14 @@ const login = async (req, res) => {
                         phoneNumber: user.phoneNumber,
                         role: user.role
                     },
-                    message: "Login successful"
+                    token: token,
+                    userId: user._id, // For backward compatibility
+                    message: "Login successful",
+                    sessionInfo: {
+                        expiresIn: JWT_EXPIRES_IN,
+                        tokenType: "Bearer",
+                        loginTime: new Date().toISOString()
+                    }
                 });
             } else {
                 return res.status(401).json({ message: "Invalid email or password" });
@@ -183,9 +211,39 @@ const getUserById = async (req, res) => {
     }
 };
 
+// Refresh user session and validate userId
+const refreshUserId = async (req, res) => {
+    try {
+        // Authentication is handled by middleware, so req.user and req.userId are available
+        const user = req.user;
+        const userId = req.validatedUserId || req.userId;
+
+        // Return fresh user data with validated userId
+        res.status(200).json({
+            message: "User session refreshed successfully",
+            user: {
+                _id: user._id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phoneNumber: user.phoneNumber,
+                role: user.role,
+                createdAt: user.createdAt
+            },
+            validatedUserId: userId,
+            sessionValid: true
+        });
+
+    } catch (error) {
+        console.error("Error refreshing user session:", error);
+        res.status(500).json({ message: "Error refreshing user session" });
+    }
+};
+
 module.exports = {
     login,
     register,
     getAllUsers,
     getUserById,
+    refreshUserId,
 };

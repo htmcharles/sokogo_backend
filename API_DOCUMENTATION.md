@@ -5,6 +5,11 @@
 http://localhost:8000/api
 ```
 
+## 🚀 **Server Status**
+✅ **Running**: Port 8000 (optimized for React frontend)
+✅ **CORS**: Configured for React dev server (localhost:3000)
+✅ **Performance**: Optimized for seamless seller image uploads
+
 ## Authentication
 Most endpoints require authentication using User ID. Include the user ID in the request headers:
 ```

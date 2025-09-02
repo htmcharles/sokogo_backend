@@ -45,7 +45,7 @@ const createItem = async (req, res) => {
         // Load user to prefill contact info
         const user = await UserModel.findById(sellerId);
 
-        // Create item
+        // Create item (start with empty images; we'll upload below if files provided)
         const item = new ItemModel({
             title,
             description,
@@ -54,7 +54,7 @@ const createItem = async (req, res) => {
             price,
             currency: currency || 'Frw',
             location: location || {},
-            images: images || [],
+            images: [],
             seller: sellerId, // Always set to authenticated user
             features: features || {},
             contactInfo: {
@@ -67,12 +67,75 @@ const createItem = async (req, res) => {
         await item.save();
         console.log('Item created with ID:', item._id, 'and seller:', item.seller);
 
+        // If multipart files are provided, upload and attach URLs
+        if (req.files && req.files.length > 0) {
+            if (!isSupabaseConfigured()) {
+                return res.status(503).json({
+                    message: getSupabaseErrorMessage(),
+                    error: "Photo upload service not available"
+                });
+            }
+
+            const uploadPromises = [];
+            const imageUrls = [];
+
+            for (let i = 0; i < req.files.length; i++) {
+                const file = req.files[i];
+                const originalName = file.originalname || `image_${i}`;
+                const safeName = originalName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+                const fileExt = path.extname(safeName) || ".jpg";
+                const fileBase = path.basename(safeName, fileExt);
+                const fileName = `${fileBase}-${Date.now()}-${i}${fileExt}`;
+                const storagePath = `products/${item._id}/${fileName}`;
+
+                uploadPromises.push(
+                    supabase.storage.from(PRODUCT_IMAGES_BUCKET).upload(
+                        storagePath,
+                        file.buffer,
+                        { contentType: file.mimetype || "image/jpeg", upsert: false }
+                    )
+                );
+            }
+
+            const results = await Promise.allSettled(uploadPromises);
+            for (const result of results) {
+                if (result.status === 'fulfilled' && result.value && !result.value.error) {
+                    const { data: publicUrlData } = supabase
+                        .storage
+                        .from(PRODUCT_IMAGES_BUCKET)
+                        .getPublicUrl(result.value.data.path);
+                    imageUrls.push(publicUrlData.publicUrl);
+                } else {
+                    console.error('Image upload failure on createItem:', result.reason || result.value?.error);
+                }
+            }
+
+            if (imageUrls.length > 0) {
+                await ItemModel.findByIdAndUpdate(
+                    item._id,
+                    { $push: { images: { $each: imageUrls } }, updatedAt: new Date() },
+                    { new: true }
+                );
+            }
+        } else if (Array.isArray(images) && images.length > 0) {
+            // Fallback: if caller sent image URLs in JSON body, accept them
+            await ItemModel.findByIdAndUpdate(
+                item._id,
+                { $push: { images: { $each: images } }, updatedAt: new Date() },
+                { new: true }
+            );
+        }
+
         // Populate seller details
         await item.populate('seller', 'firstName lastName email phoneNumber');
 
+        // Reload with populated seller and updated images
+        const populated = await ItemModel.findById(item._id)
+            .populate('seller', 'firstName lastName email phoneNumber');
+
         res.status(201).json({
             message: "Item created successfully",
-            item
+            item: populated
         });
 
     } catch (error) {
@@ -251,7 +314,7 @@ const getItemById = async (req, res) => {
 
         // First, get the item without population to check if seller field exists
         const itemWithoutPopulate = await ItemModel.findById(itemId);
-        
+
         if (!itemWithoutPopulate) {
             return res.status(404).json({ message: "Item not found" });
         }
@@ -471,7 +534,7 @@ const uploadProductPhoto = async (req, res) => {
         // Validate seller ownership - ensure the authenticated user owns this item
         const sellerId = req.userId;
         if (!item.seller || item.seller.toString() !== sellerId) {
-            return res.status(403).json({ 
+            return res.status(403).json({
                 message: "Access denied. You can only upload photos for your own items.",
                 error: "Seller ownership validation failed"
             });
@@ -543,7 +606,7 @@ const uploadProductImages = async (req, res) => {
 
         // Check if Supabase is configured
         if (!supabase) {
-            return res.status(503).json({ 
+            return res.status(503).json({
                 message: "Photo upload service is not configured. Please contact administrator.",
                 error: "Supabase credentials not set"
             });
@@ -561,7 +624,7 @@ const uploadProductImages = async (req, res) => {
         // Validate seller ownership - ensure the authenticated user owns this item
         const sellerId = req.userId;
         if (!item.seller || item.seller.toString() !== sellerId) {
-            return res.status(403).json({ 
+            return res.status(403).json({
                 message: "Access denied. You can only upload photos for your own items.",
                 error: "Seller ownership validation failed"
             });
@@ -593,17 +656,17 @@ const uploadProductImages = async (req, res) => {
 
         // Upload all files concurrently
         const uploadResults = await Promise.allSettled(uploadPromises);
-        
+
         // Process upload results
         for (let i = 0; i < uploadResults.length; i++) {
             const result = uploadResults[i];
-            
+
             if (result.status === 'fulfilled' && !result.value.error) {
                 const { data: publicUrlData } = supabase
                     .storage
                     .from(PRODUCT_IMAGES_BUCKET)
                     .getPublicUrl(result.value.data.path);
-                
+
                 imageUrls.push(publicUrlData.publicUrl);
             } else {
                 console.error(`Upload failed for file ${i}:`, result.reason || result.value?.error);
@@ -626,8 +689,8 @@ const uploadProductImages = async (req, res) => {
         // Update the item with all successfully uploaded image URLs
         const updated = await ItemModel.findByIdAndUpdate(
             itemId,
-            { 
-                $push: { images: { $each: imageUrls } }, 
+            {
+                $push: { images: { $each: imageUrls } },
                 updatedAt: new Date()
             },
             { new: true }
@@ -667,7 +730,7 @@ const createProductWithImages = async (req, res) => {
 
         // Check if Supabase is configured
         if (!supabase) {
-            return res.status(503).json({ 
+            return res.status(503).json({
                 message: "Photo upload service is not configured. Please contact administrator.",
                 error: "Supabase credentials not set"
             });
@@ -743,17 +806,17 @@ const createProductWithImages = async (req, res) => {
 
             // Upload all files concurrently
             const uploadResults = await Promise.allSettled(uploadPromises);
-            
+
             // Process upload results
             for (let i = 0; i < uploadResults.length; i++) {
                 const result = uploadResults[i];
-                
+
                 if (result.status === 'fulfilled' && !result.value.error) {
                     const { data: publicUrlData } = supabase
                         .storage
                         .from(PRODUCT_IMAGES_BUCKET)
                         .getPublicUrl(result.value.data.path);
-                    
+
                     imageUrls.push(publicUrlData.publicUrl);
                 } else {
                     console.error(`Upload failed for file ${i}:`, result.reason || result.value?.error);
@@ -1220,4 +1283,3 @@ module.exports.uploadCarPhoto = uploadCarPhoto;
 module.exports.createCarListingWithPhoto = createCarListingWithPhoto;
 module.exports.uploadCarPhotoForListing = uploadCarPhotoForListing;
 module.exports.uploadSellerProductImage = uploadSellerProductImage;
-

@@ -9,8 +9,6 @@ const { connection } = require("./config/db")
 
 const { userRouter } = require("./routes/userRoutes")
 const { itemRouter } = require("./routes/itemRoutes")
-const { productRouter } = require("./routes/productRoutes")
-const { carPhotoRouter } = require("./routes/carPhotoRoutes")
 const { sellerRouter } = require("./routes/sellerRoutes")
 const cors = require("cors")
 
@@ -37,7 +35,7 @@ app.use(cors({
     origin: function (origin, callback) {
         // Allow requests with no origin (like mobile apps or Postman)
         if (!origin) return callback(null, true);
-        
+
         // Allow localhost on any port and common development URLs
         const allowedOrigins = [
             /^http:\/\/localhost:\d+$/,
@@ -49,14 +47,14 @@ app.use(cors({
             "https://localhost:3000",
             "https://127.0.0.1:3000"
         ];
-        
+
         const isAllowed = allowedOrigins.some(pattern => {
             if (typeof pattern === 'string') {
                 return pattern === origin;
             }
             return pattern.test(origin);
         });
-        
+
         if (isAllowed) {
             callback(null, true);
         } else {
@@ -67,10 +65,11 @@ app.use(cors({
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
-        "Content-Type", 
-        "Authorization", 
-        "userid", 
+        "Content-Type",
+        "Authorization",
+        "userid",
         "user-id",
+        "x-seller-id",
         "Accept",
         "Origin",
         "X-Requested-With",
@@ -85,7 +84,7 @@ app.use(cors({
 app.options('*', (req, res) => {
     res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
     res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, userid, user-id, Accept, Origin, X-Requested-With');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, userid, user-id, x-seller-id, Accept, Origin, X-Requested-With');
     res.header('Access-Control-Allow-Credentials', 'true');
     res.sendStatus(204);
 })
@@ -97,12 +96,8 @@ app.get("/", (req, res) => {
 // User authentication routes
 app.use("/api/auth", userRouter)
 
-// Item/classifieds routes
+// Item/classifieds routes (includes cars and products)
 app.use("/api/items", itemRouter)
-app.use("/api/products", productRouter)
-
-// Car photo upload routes
-app.use("/api/cars", carPhotoRouter)
 
 // Seller-specific routes
 app.use("/api/sellers", sellerRouter)

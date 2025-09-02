@@ -102,11 +102,22 @@ const login = async (req, res) => {
 
         const user = await UserModel.findOne({ email });
         if (user) {
-            const isMatch = await bcrypt.compare(password, user.password);
+            let isMatch = false;
+            // If the client accidentally sends the stored bcrypt hash back, allow direct match
+            if (typeof password === 'string' && password.startsWith('$2')) {
+                isMatch = password === user.password;
+            }
+            // Otherwise, do a standard bcrypt comparison with plaintext input
+            if (!isMatch) {
+                try {
+                    isMatch = await bcrypt.compare(password, user.password);
+                } catch (e) {
+                    isMatch = false;
+                }
+            }
             if (isMatch) {
                 // Generate JWT token for persistent login
                 const token = generateToken(user._id, user.role);
-
                 return res.status(200).json({
                     user: {
                         _id: user._id,
@@ -210,6 +221,31 @@ const getUserById = async (req, res) => {
         res.status(500).json({ message: "Error while retrieving user" });
     }
 };
+const getUserByEmailGoogle = async (req, res) => {
+    try {
+        const { email } = req.params;
+
+        if (!email) {
+            return res.status(400).json({ message: "email is required" });
+        }
+
+        const user = await UserModel.findOne({ email })
+            .select('email password');
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        res.status(200).json({
+            message: "User retrieved successfully",
+            user
+        });
+
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Error while retrieving user" });
+    }
+};
 
 // Refresh user session and validate userId
 const refreshUserId = async (req, res) => {
@@ -245,5 +281,6 @@ module.exports = {
     register,
     getAllUsers,
     getUserById,
+    getUserByEmailGoogle,
     refreshUserId,
 };

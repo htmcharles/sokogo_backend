@@ -1,7 +1,7 @@
 const { ItemModel } = require("../models/itemModel");
 const { UserModel } = require("../models/usersModel");
+const mongoose = require("mongoose");
 const path = require("path");
-const { supabase, PRODUCT_IMAGES_BUCKET, isSupabaseConfigured, getSupabaseErrorMessage } = require("../config/supabase");
 
 // Create a new item listing
 const createItem = async (req, res) => {
@@ -67,61 +67,11 @@ const createItem = async (req, res) => {
         await item.save();
         console.log('Item created with ID:', item._id, 'and seller:', item.seller);
 
-        // If multipart files are provided, upload and attach URLs
-        if (req.files && req.files.length > 0) {
-            if (!isSupabaseConfigured()) {
-                return res.status(503).json({
-                    message: getSupabaseErrorMessage(),
-                    error: "Photo upload service not available"
-                });
-            }
-
-            const uploadPromises = [];
-            const imageUrls = [];
-
-            for (let i = 0; i < req.files.length; i++) {
-                const file = req.files[i];
-                const originalName = file.originalname || `image_${i}`;
-                const safeName = originalName.replace(/[^a-zA-Z0-9_.-]/g, "_");
-                const fileExt = path.extname(safeName) || ".jpg";
-                const fileBase = path.basename(safeName, fileExt);
-                const fileName = `${fileBase}-${Date.now()}-${i}${fileExt}`;
-                const storagePath = `products/${item._id}/${fileName}`;
-
-                uploadPromises.push(
-                    supabase.storage.from(PRODUCT_IMAGES_BUCKET).upload(
-                        storagePath,
-                        file.buffer,
-                        { contentType: file.mimetype || "image/jpeg", upsert: false }
-                    )
-                );
-            }
-
-            const results = await Promise.allSettled(uploadPromises);
-            for (const result of results) {
-                if (result.status === 'fulfilled' && result.value && !result.value.error) {
-                    const { data: publicUrlData } = supabase
-                        .storage
-                        .from(PRODUCT_IMAGES_BUCKET)
-                        .getPublicUrl(result.value.data.path);
-                    imageUrls.push(publicUrlData.publicUrl);
-                } else {
-                    console.error('Image upload failure on createItem:', result.reason || result.value?.error);
-                }
-            }
-
-            if (imageUrls.length > 0) {
-                await ItemModel.findByIdAndUpdate(
-                    item._id,
-                    { $push: { images: { $each: imageUrls } }, updatedAt: new Date() },
-                    { new: true }
-                );
-            }
-        } else if (Array.isArray(images) && images.length > 0) {
-            // Fallback: if caller sent image URLs in JSON body, accept them
+        // Accept images directly from JSON body (urls or local paths)
+        if (Array.isArray(images) && images.length > 0) {
             await ItemModel.findByIdAndUpdate(
                 item._id,
-                { $push: { images: { $each: images } }, updatedAt: new Date() },
+                { $set: { images }, updatedAt: new Date() },
                 { new: true }
             );
         }
@@ -129,13 +79,9 @@ const createItem = async (req, res) => {
         // Populate seller details
         await item.populate('seller', 'firstName lastName email phoneNumber');
 
-        // Reload with populated seller and updated images
-        const populated = await ItemModel.findById(item._id)
-            .populate('seller', 'firstName lastName email phoneNumber');
-
         res.status(201).json({
             message: "Item created successfully",
-            item: populated
+            item
         });
 
     } catch (error) {
@@ -1283,3 +1229,46 @@ module.exports.uploadCarPhoto = uploadCarPhoto;
 module.exports.createCarListingWithPhoto = createCarListingWithPhoto;
 module.exports.uploadCarPhotoForListing = uploadCarPhotoForListing;
 module.exports.uploadSellerProductImage = uploadSellerProductImage;
+
+// Upload arbitrary images to Cloudinary (accepts memory buffers via multer)
+const uploadImagesToCloudinary = async (req, res) => {
+    try {
+        if (!isCloudinaryConfigured()) {
+            return res.status(503).json({ message: getCloudinaryErrorMessage() });
+        }
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ message: "No files uploaded" });
+        }
+
+        const folder = req.body.folder || "uploads";
+        const results = [];
+        for (let i = 0; i < req.files.length; i++) {
+            const file = req.files[i];
+            const options = {
+                folder,
+                resource_type: "auto",
+            };
+            /* eslint-disable no-await-in-loop */
+            const result = await uploadBufferToCloudinary(file.buffer, options);
+            /* eslint-enable no-await-in-loop */
+            results.push({
+                url: result.secure_url,
+                public_id: result.public_id,
+                resource_type: result.resource_type,
+                bytes: result.bytes,
+                format: result.format,
+            });
+        }
+
+        res.status(200).json({
+            message: "Images uploaded successfully",
+            count: results.length,
+            images: results,
+        });
+    } catch (error) {
+        console.error("Error uploading images to Cloudinary:", error);
+        res.status(500).json({ message: "Error uploading images" });
+    }
+};
+
+module.exports.uploadImagesToCloudinary = uploadImagesToCloudinary;

@@ -187,24 +187,13 @@ const createManyItems = async (req, res) => {
 // Get all items with filtering
 const getItems = async (req, res) => {
     try {
-      const { category, subcategory, minPrice, maxPrice, location, search, page = 1, limit = 10, features } = req.query;
+      const { category, subcategory, minPrice, maxPrice, location, search, page = 1, limit = 10 } = req.query;
 
-      // Parse features safely
-      let featuresObj = {};
-      if (features) {
-        try {
-          featuresObj = JSON.parse(features);
-        } catch (err) {
-          console.warn("Invalid features JSON:", features);
-          featuresObj = {};
-        }
-      }
 
       const filter = { $or: [{ status: 'ACTIVE' }, { status: { $exists: false } }] };
 
       if (category) filter.category = category;
       if (subcategory) filter.subcategory = subcategory;
-      if (featuresObj.make) filter.make = featuresObj.make; // ✅ safe now
       if (location) filter['location.city'] = { $regex: location, $options: 'i' };
       if (minPrice || maxPrice) {
         filter.price = {};

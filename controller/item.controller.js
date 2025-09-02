@@ -187,71 +187,65 @@ const createManyItems = async (req, res) => {
 // Get all items with filtering
 const getItems = async (req, res) => {
     try {
-        const {
-            category,
-            subcategory,
-            minPrice,
-            maxPrice,
-            location,
-            search,
-            page = 1,
-            limit = 10
-        } = req.query;
+      const { category, subcategory, minPrice, maxPrice, location, search, page = 1, limit = 10, features } = req.query;
 
-                        const filter = {};
+      // Parse features safely
+      let featuresObj = {};
+      if (features) {
+        try {
+          featuresObj = JSON.parse(features);
+        } catch (err) {
+          console.warn("Invalid features JSON:", features);
+          featuresObj = {};
+        }
+      }
 
-        // Apply status filter - include ACTIVE items and items without status field
-        filter.$or = [
-            { status: 'ACTIVE' },
-            { status: { $exists: false } }
+      const filter = { $or: [{ status: 'ACTIVE' }, { status: { $exists: false } }] };
+
+      if (category) filter.category = category;
+      if (subcategory) filter.subcategory = subcategory;
+      if (featuresObj.make) filter.make = featuresObj.make; // ✅ safe now
+      if (location) filter['location.city'] = { $regex: location, $options: 'i' };
+      if (minPrice || maxPrice) {
+        filter.price = {};
+        if (minPrice) filter.price.$gte = Number(minPrice);
+        if (maxPrice) filter.price.$lte = Number(maxPrice);
+      }
+      if (search) {
+        filter.$and = [
+          { $or: filter.$or },
+          { $or: [{ title: { $regex: search, $options: 'i' } }, { description: { $regex: search, $options: 'i' } }] }
         ];
+        delete filter.$or;
+      }
 
-        // Apply other filters
-        if (category) filter.category = category;
-        if (subcategory) filter.subcategory = subcategory;
-        if (location) filter['location.city'] = { $regex: location, $options: 'i' };
-        if (minPrice || maxPrice) {
-            filter.price = {};
-            if (minPrice) filter.price.$gte = Number(minPrice);
-            if (maxPrice) filter.price.$lte = Number(maxPrice);
+      const skip = (page - 1) * limit;
+
+      const items = await ItemModel.find(filter)
+        .populate('seller', 'firstName lastName email phoneNumber role createdAt')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit));
+
+      const total = await ItemModel.countDocuments(filter);
+
+      res.status(200).json({
+        message: "Items retrieved successfully",
+        items,
+        pagination: {
+          currentPage: Number(page),
+          totalPages: Math.ceil(total / limit),
+          totalItems: total,
+          itemsPerPage: Number(limit)
         }
-        if (search) {
-            filter.$and = [
-                { $or: filter.$or },
-                { $or: [
-                    { title: { $regex: search, $options: 'i' } },
-                    { description: { $regex: search, $options: 'i' } }
-                ]}
-            ];
-            delete filter.$or;
-        }
-
-        const skip = (page - 1) * limit;
-
-        const items = await ItemModel.find(filter)
-            .populate('seller', 'firstName lastName email phoneNumber role createdAt')
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(Number(limit));
-
-        const total = await ItemModel.countDocuments(filter);
-
-        res.status(200).json({
-            message: "Items retrieved successfully",
-            items,
-            pagination: {
-                currentPage: Number(page),
-                totalPages: Math.ceil(total / limit),
-                totalItems: total,
-                itemsPerPage: Number(limit)
-            }
-        });
+      });
 
     } catch (error) {
-        console.error("Error fetching items:", error);
-        res.status(500).json({ message: "Error fetching items" });
+      console.error("Error fetching items:", error);
+      res.status(500).json({ message: "Error fetching items" });
     }
-};
+  };
+
 
 // Get item by ID
 const getItemById = async (req, res) => {

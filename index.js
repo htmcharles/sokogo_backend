@@ -9,7 +9,7 @@ const { connection } = require("./config/db")
 
 const { userRouter } = require("./routes/userRoutes")
 const { itemRouter } = require("./routes/itemRoutes")
-const { sellerRouter } = require("./routes/sellerRoutes")
+// const { sellerRouter } = require("./routes/sellerRoutes")
 const cors = require("cors")
 
 // Performance middleware for React frontend optimization
@@ -99,8 +99,8 @@ app.use("/api/auth", userRouter)
 // Item/classifieds routes (includes cars and products)
 app.use("/api/items", itemRouter)
 
-// Seller-specific routes
-app.use("/api/sellers", sellerRouter)
+// Seller-specific routes (removed)
+// app.use("/api/sellers", sellerRouter)
 
 // Enhanced port configuration with automatic fallback
 const { exec } = require('child_process');

@@ -47,7 +47,7 @@ app.use(cors({
             "https://localhost:3000",
             "https://127.0.0.1:3000",
             "https://sokogo.vercel.app/",
-            "https://sokogo-frontend-wheat.vercel.app/"
+            "https://sokogo-frontend-wheat.vercel.app/",
         ];
 
         const isAllowed = allowedOrigins.some(pattern => {
